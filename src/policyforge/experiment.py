@@ -13,7 +13,7 @@ import random
 import time
 from pathlib import Path
 
-from policyforge import agent, llm, roles
+from policyforge import agent, camel_runtime, llm, roles
 from policyforge import env as E
 from policyforge.attackdb import AttackDB
 from policyforge.attacks import HELDOUT_FAMILIES, TRAIN_FAMILIES, BuiltinAttackSource, partition, stratified
@@ -36,8 +36,8 @@ def checkpoint(path: Path, fn):
     return out
 
 
-def build_d(suite: str) -> str:
-    text = roles.one_shot_rules(suite, tag="D")
+def build_d(suite: str, benign) -> str:
+    text = roles.one_shot_rules(suite, benign, tag="D")
     for _ in range(2):
         try:
             rs = RuleSet.from_yaml(text)
@@ -45,16 +45,27 @@ def build_d(suite: str) -> str:
                 return text
         except ParseError:
             pass
-        text = roles.one_shot_rules(suite, tag="D-retry")
+        text = roles.one_shot_rules(suite, benign, tag="D-retry")
     return text
 
 
 def evaluate_condition(
-    cond: str, suite: str, db: AttackDB, samples, *, rules: RuleSet | None, prompt: str, benign_reps: int
+    cond: str,
+    suite: str,
+    db: AttackDB,
+    samples,
+    *,
+    rules: RuleSet | None,
+    prompt: str,
+    benign_reps: int,
+    runtime: str,
+    delegate: type | None = None,
+    src=None,
 ) -> dict:
-    src = BuiltinAttackSource()
-    out = run_attacks(samples, src, db, condition=cond, phase="eval", rules=rules, mode="enforce", system_prompt=prompt)
-    ben = run_benign(suite, db, condition=cond, phase="eval", rules=rules, system_prompt=prompt, reps=benign_reps)
+    src = src or BuiltinAttackSource()
+    kw = dict(rules=rules, system_prompt=prompt, runtime=runtime, delegate=delegate)
+    out = run_attacks(samples, src, db, condition=cond, phase="eval", mode="enforce", **kw)
+    ben = run_benign(suite, db, condition=cond, phase="eval", reps=benign_reps, **kw)
 
     def asr(split: str) -> tuple[float, int]:
         xs = [t.attack_success for s, (_, _, t) in zip(samples, out) if s.split == split]
@@ -73,6 +84,8 @@ def evaluate_condition(
                 blocked[c.decision["check"]] = blocked.get(c.decision["check"], 0) + 1
                 break
     return {
+        "runtime": runtime,
+        "crashes": sum(t.crashed is not None for _, _, t in out) + sum(t.crashed is not None for t in ben),
         "train_asr": tr,
         "heldout_asr": ho,
         "utility": sum(t.utility for t in ben) / len(ben),
@@ -111,8 +124,17 @@ def main() -> None:
     log(f"budget: spent ${llm.ledger().spent():.4f} of ${llm.BUDGET_CAP_USD:.0f} (stop at {llm.STOP_FRACTION:.0%})")
 
     # ---- build defenses ----
-    rules_c = RuleSet.from_yaml((ROOT / "rules/handwritten_banking.yaml").read_text())
-    d_text = checkpoint(out_dir / "rules_D.json", lambda: {"yaml": build_d(suite)})["yaml"]
+    from camel.pipeline_elements.security_policies import BankingSecurityPolicyEngine
+
+    from policyforge.loop import benign_bank, ensure_benign_bank
+
+    rules_c = RuleSet.from_yaml(
+        (ROOT / "rules/handwritten_banking.yaml").read_text()
+    )  # CaMeL's policy, translated (F's seed)
+    ensure_benign_bank(db, suite)
+    benign = benign_bank(db)
+    log(f"benign bank: {len(benign)} of 16 tasks completed by unprotected CaMeL")
+    d_text = checkpoint(out_dir / "rules_D.json", lambda: {"yaml": build_d(suite, benign)})["yaml"]
     (out_dir / "rules_D.yaml").write_text(d_text)
     rules_d = RuleSet.from_yaml(d_text)
 
@@ -147,23 +169,33 @@ def main() -> None:
     b = checkpoint(out_dir / "loop_B.json", loop_b)
     (out_dir / "prompt_B.txt").write_text(b["prompt"])
 
+    # (rules, system prompt, runtime, CaMeL policy engine to delegate to)
+    P = agent.DEFAULT_SYSTEM_PROMPT
     defenses = {
-        "A": (None, agent.DEFAULT_SYSTEM_PROMPT),
-        "B": (None, b["prompt"]),
-        "C": (rules_c, agent.DEFAULT_SYSTEM_PROMPT),
-        "D": (rules_d, agent.DEFAULT_SYSTEM_PROMPT),
-        "E": (RuleSet.from_yaml(e["yaml"]), agent.DEFAULT_SYSTEM_PROMPT),
-        "F": (RuleSet.from_yaml(f["yaml"]), agent.DEFAULT_SYSTEM_PROMPT),
+        "A": (None, P, "plain", None),  # undefended tool-calling agent
+        "B": (None, b["prompt"], "plain", None),  # prompt-patching loop
+        "C": (None, P, "camel", BankingSecurityPolicyEngine),  # CaMeL with its own hand-written policy
+        "D": (rules_d, P, "camel", None),  # CaMeL + one-shot LLM rules
+        "E": (RuleSet.from_yaml(e["yaml"]), P, "camel", None),  # CaMeL + our loop from zero
+        "F": (RuleSet.from_yaml(f["yaml"]), P, "camel", None),  # CaMeL + our loop seeded from C
     }
 
     # ---- evaluate every condition live, on the same attacks ----
     conditions = {}
-    for cond, (rules, prompt) in defenses.items():
+    for cond, (rules, prompt, runtime, delegate) in defenses.items():
         log(f"evaluating {cond} on {len(eval_samples)} attacks + benign x{benign_reps}")
         m = checkpoint(
             out_dir / f"eval_{cond}.json",
             lambda: evaluate_condition(
-                cond, suite, db, eval_samples, rules=rules, prompt=prompt, benign_reps=benign_reps
+                cond,
+                suite,
+                db,
+                eval_samples,
+                rules=rules,
+                prompt=prompt,
+                benign_reps=benign_reps,
+                runtime=runtime,
+                delegate=delegate,
             ),
         )
         conditions[cond] = {"blackbox": m}
@@ -176,8 +208,9 @@ def main() -> None:
 
     traces = bank_traces(db, cfg.rounds)
     rep = {}
-    for cond in ("C", "D", "E", "F"):
-        ev = evaluate(defenses[cond][0], suite, traces)
+    replay_rules = {"C (translated)": rules_c, "D": rules_d, "E": defenses["E"][0], "F": defenses["F"][0]}
+    for cond, rs in replay_rules.items():
+        ev = evaluate(rs, suite, traces, benign)
         rep[cond] = {
             "train_attacks_succeeded": len(ev.attacks_succeeded),
             "train_attacks_total": ev.attacks_total,
@@ -201,6 +234,11 @@ def main() -> None:
         "replay": {
             "command": f"uv run --frozen python -m policyforge.replay --db {rel}/attacks.sqlite --rules {rel}/rules_E.yaml --upto-round {cfg.rounds}",
             "expected": {k: rep["E"][k] for k in ("train_attacks_succeeded", "train_attacks_total", "utility")},
+        },
+        "benign_bank_tasks": [t.user_task_id for t in benign],
+        "runtime": {
+            "A,B": f"plain tool-calling agent ({agent.AGENT_MODEL})",
+            "C-F": f"CaMeL (planner {camel_runtime.PLANNER_MODEL}, extractor {camel_runtime.EXTRACTOR_MODEL})",
         },
     }
     report["budget"]["spent_usd"] = round(llm.ledger().spent(), 6)

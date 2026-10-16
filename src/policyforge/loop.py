@@ -27,6 +27,45 @@ OBS = "OBS"
 WORKERS = 8
 
 
+def episode(
+    runtime: str,
+    suite: str,
+    user_task_id: str,
+    *,
+    rules: RuleSet | None,
+    delegate: type | None = None,
+    injection_task_id: str | None = None,
+    injections: dict[str, str] | None = None,
+    mode: str = "enforce",
+    system_prompt: str = agent.DEFAULT_SYSTEM_PROMPT,
+    tag: str = "",
+) -> Trace:
+    """Run one episode on the plain tool-calling agent (A, B) or on CaMeL (C–F, and the trace bank)."""
+    if runtime == "camel":
+        from policyforge import camel_runtime
+
+        return camel_runtime.run_camel_episode(
+            suite,
+            user_task_id,
+            rules=rules,
+            delegate=delegate,
+            injection_task_id=injection_task_id,
+            injections=injections,
+            mode=mode,
+            tag=tag,
+        )
+    return agent.run_episode(
+        suite,
+        user_task_id,
+        rules=rules,
+        injection_task_id=injection_task_id,
+        injections=injections,
+        mode=mode,
+        system_prompt=system_prompt,
+        tag=tag,
+    )
+
+
 @dataclass
 class LoopConfig:
     suite: str = "banking"
@@ -74,6 +113,8 @@ def run_attacks(
     system_prompt: str = agent.DEFAULT_SYSTEM_PROMPT,
     round: int | None = None,
     ruleset_version: int | None = None,
+    runtime: str = "plain",
+    delegate: type | None = None,
 ) -> list[tuple[int, int, Trace]]:
     def one(s: AttackSample):
         inj = src.payloads(s)
@@ -90,10 +131,12 @@ def run_attacks(
             payload="\n---\n".join(inj.values()),
             attacker_model=f"{src.name}:{s.variant}",
         )
-        tr = agent.run_episode(
+        tr = episode(
+            runtime,
             s.suite,
             s.user_task_id,
             rules=rules,
+            delegate=delegate,
             injection_task_id=s.injection_task_id,
             injections=inj,
             mode=mode,
@@ -125,16 +168,26 @@ def run_benign(
     system_prompt: str = agent.DEFAULT_SYSTEM_PROMPT,
     reps: int = 1,
     ruleset_version: int | None = None,
+    runtime: str = "plain",
+    delegate: type | None = None,
+    mode: str = "enforce",
 ) -> list[Trace]:
     from policyforge.env import suite as get_suite
 
     tasks = [t for t in get_suite(suite).user_tasks for _ in range(reps)]
 
     def one(tid: str) -> Trace:
-        tr = agent.run_episode(
-            suite, tid, rules=rules, mode="enforce", system_prompt=system_prompt, tag=f"{condition}:{phase}"
+        tr = episode(
+            runtime,
+            suite,
+            tid,
+            rules=rules,
+            delegate=delegate,
+            mode=mode,
+            system_prompt=system_prompt,
+            tag=f"{condition}:{phase}",
         )
-        db.add_run(tr, condition=condition, phase=phase, kind="benign", mode="enforce", ruleset_version=ruleset_version)
+        db.add_run(tr, condition=condition, phase=phase, kind="benign", mode=mode, ruleset_version=ruleset_version)
         return tr
 
     with ThreadPoolExecutor(WORKERS) as pool:
@@ -149,7 +202,38 @@ def ensure_observe_bank(db: AttackDB, src: AttackSource, plan: list[list[AttackS
     }
     for r in range(1, upto_round + 1):
         if r not in done:
-            run_attacks(plan[r - 1], src, db, condition=OBS, phase="loop", rules=None, mode="observe", round=r)
+            run_attacks(
+                plan[r - 1], src, db, condition=OBS, phase="loop", rules=None, mode="observe", round=r, runtime="camel"
+            )
+
+
+BENIGN_BANK_REPS = 2
+
+
+def ensure_benign_bank(db: AttackDB, suite: str) -> None:
+    """Run (once) every benign task on CaMeL with nothing blocked, recording labeled traces."""
+    n = db.query("SELECT COUNT(*) c FROM runs WHERE condition = ? AND kind = 'benign' AND phase = 'bank'", (OBS,))[0][
+        "c"
+    ]
+    if n == 0:
+        run_benign(
+            suite, db, condition=OBS, phase="bank", rules=None, reps=BENIGN_BANK_REPS, runtime="camel", mode="observe"
+        )
+
+
+def benign_bank(db: AttackDB) -> list[Trace]:
+    """One successful recorded CaMeL run per benign task (tasks the unprotected agent can't do are excluded)."""
+    import json
+
+    rows = db.query(
+        "SELECT trace FROM runs WHERE condition = ? AND kind = 'benign' AND phase = 'bank' ORDER BY id", (OBS,)
+    )
+    out: dict[str, Trace] = {}
+    for row in rows:
+        t = Trace.from_dict(json.loads(row["trace"]))
+        if t.utility and t.user_task_id not in out:
+            out[t.user_task_id] = t
+    return [out[k] for k in sorted(out, key=lambda x: int(x.rsplit("_", 1)[1]))]
 
 
 def bank_traces(db: AttackDB, upto_round: int) -> list[tuple[int, Trace]]:
@@ -189,6 +273,8 @@ def run_policy_loop(
     log=print,
 ) -> LoopResult:
     version = db.add_ruleset(condition, seed.to_yaml(), parent=None, round=0, status="seed")
+    ensure_benign_bank(db, cfg.suite)
+    benign = benign_bank(db)
     rules, text = seed, seed.to_yaml()
     res = LoopResult(condition, version, text, 0, 0)
     total_iters = cfg.rounds + cfg.settle_iterations
@@ -198,7 +284,7 @@ def run_policy_loop(
         if not settling:
             ensure_observe_bank(db, src, plan, rnd)
         traces = bank_traces(db, rnd)
-        ev = evaluate(rules, cfg.suite, traces)
+        ev = evaluate(rules, cfg.suite, traces, benign)
         entry = {
             "iteration": it,
             "round": rnd,
@@ -241,11 +327,14 @@ def run_policy_loop(
         feedback: list[str] = []
         accepted = None
         for attempt in range(cfg.update_attempts):
-            cand = roles.update_rules(cfg.suite, text, diagnoses, feedback, stats, tag=f"{condition}:r{rnd}:a{attempt}")
+            cand = roles.update_rules(
+                cfg.suite, text, diagnoses, feedback, stats, benign, tag=f"{condition}:r{rnd}:a{attempt}"
+            )
             val = validate(
                 cand,
                 cfg.suite,
                 traces,
+                benign,
                 utility_floor=cfg.utility_floor,
                 max_confirmation_rate=cfg.max_confirmation_rate,
             )

@@ -82,6 +82,8 @@ class Call:
     decision: dict | None = None  # Decision as dict
     executed: bool = False
     result: str = ""
+    readers: dict[str, list[str] | None] | None = None  # CaMeL runtime: who may read each argument (None = public)
+    private_deps: bool = False  # CaMeL runtime: control flow depended on non-public data
 
     def to_dict(self) -> dict:
         return {
@@ -91,6 +93,8 @@ class Call:
             "decision": self.decision,
             "executed": self.executed,
             "result": self.result[:2000],
+            "readers": self.readers,
+            "private_deps": self.private_deps,
         }
 
 
@@ -107,6 +111,8 @@ class Trace:
     utility: bool | None = None
     attack_success: bool | None = None
     confirmations: int = 0
+    runtime: str = "plain"  # plain (tool-calling agent) | camel
+    crashed: str | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -119,14 +125,14 @@ class Trace:
             "utility": self.utility,
             "attack_success": self.attack_success,
             "confirmations": self.confirmations,
+            "runtime": self.runtime,
+            "crashed": self.crashed,
         }
 
     @classmethod
     def from_dict(cls, d: dict) -> Trace:
-        calls = [
-            Call(**{k: c[k] for k in ("function", "args", "labels", "decision", "executed", "result")})
-            for c in d["calls"]
-        ]
+        keys = ("function", "args", "labels", "decision", "executed", "result", "readers", "private_deps")
+        calls = [Call(**{k: c[k] for k in keys if k in c}) for c in d["calls"]]
         return cls(
             d["suite"],
             d["user_task_id"],
@@ -137,6 +143,8 @@ class Trace:
             d.get("utility"),
             d.get("attack_success"),
             d.get("confirmations", 0),
+            d.get("runtime", "plain"),
+            d.get("crashed"),
         )
 
 
@@ -224,6 +232,49 @@ class Episode:
 
 
 def replay(trace: Trace, rules: RuleSet | None, *, benign: bool) -> Trace:
+    if trace.runtime == "camel":
+        return replay_camel(trace, rules, benign=benign)
+    return replay_plain(trace, rules, benign=benign)
+
+
+def replay_camel(trace: Trace, rules: RuleSet | None, *, benign: bool) -> Trace:
+    """Re-decide a recorded CaMeL trace under `rules`, using the labels CaMeL recorded.
+
+    Like CaMeL, a denial halts the plan: later calls don't run. Allowed calls are re-executed in a
+    fresh environment and graded with AgentDojo's checks. A benign trace that was halted counts as failed.
+    """
+    ep = Episode(trace.suite, trace.user_task_id, None if benign else trace.injection_task_id, trace.injections)
+    halted = False
+    for c in trace.calls:
+        d = None
+        if rules is not None:
+            d = rules.evaluate(c.function, c.args, {k: set(v) for k, v in c.labels.items()}, c.readers, c.private_deps)
+        call = Call(
+            c.function,
+            dict(c.args),
+            c.labels,
+            d.__dict__ if d else None,
+            readers=c.readers,
+            private_deps=c.private_deps,
+        )
+        ep.calls.append(call)
+        run = d is None or d.allowed
+        if not run and d.fallback == "ask_user":
+            ep.confirmations += 1
+            run = benign
+        if not run:
+            halted = True
+            break
+        call.executed = True
+        call.result = ep.execute(c.function, c.args)
+    t = ep.grade(trace.final_output)
+    t.runtime = "camel"
+    if halted and benign:
+        t.utility = False
+    return t
+
+
+def replay_plain(trace: Trace, rules: RuleSet | None, *, benign: bool) -> Trace:
     """Re-run a recorded sequence of attempted calls under `rules`, offline and deterministically.
 
     Denied calls are dropped (ask_user approved only when benign). Grading uses AgentDojo's checks.

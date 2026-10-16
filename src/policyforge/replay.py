@@ -1,4 +1,7 @@
-"""Offline, deterministic replay of a rule set against every recorded training attack and every benign task.
+"""Offline, deterministic replay of a rule set against every recorded training attack and the benign bank.
+
+Traces were recorded from the CaMeL runtime with their dataflow labels; replay re-decides each call under
+the rules and re-executes allowed calls in AgentDojo's simulated environment.
 
 No LLM calls. Prints progress, then one JSON line:
     {"train_attacks_succeeded": int, "train_attacks_total": int, "utility": float}
@@ -13,7 +16,7 @@ import json
 from pathlib import Path
 
 from policyforge.attackdb import AttackDB
-from policyforge.loop import bank_traces
+from policyforge.loop import bank_traces, benign_bank
 from policyforge.rules import RuleSet
 from policyforge.validate import evaluate
 
@@ -28,8 +31,9 @@ def main() -> None:
     if not Path(a.db).exists():
         raise SystemExit(f"no database at {a.db}")
     rules = RuleSet.from_yaml(Path(a.rules).read_text())
-    traces = bank_traces(AttackDB(a.db), a.upto_round)
-    ev = evaluate(rules, a.suite, traces)
+    db = AttackDB(a.db)
+    traces = bank_traces(db, a.upto_round)
+    ev = evaluate(rules, a.suite, traces, benign_bank(db))
     print(f"replayed {ev.attacks_total} attack traces and {len(ev.benign_replays)} benign tasks under {a.rules}")
     for i in ev.attacks_succeeded:
         print(f"  attack run {i} succeeds")

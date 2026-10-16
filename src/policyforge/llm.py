@@ -33,7 +33,7 @@ ANTHROPIC_PRICES = {
     "claude-haiku-5-5": (0.10, 0.50),
     "claude-opus-5-5": (4.0, 20.0),
 }
-ROLES = {"agent", "attacker", "analyzer", "updater", "baseline", "probe", "test"}
+ROLES = {"agent", "planner", "extractor", "attacker", "analyzer", "updater", "baseline", "probe", "test"}
 
 
 class BudgetStop(RuntimeError):
@@ -233,3 +233,43 @@ def _call(provider, mid, messages, tools, max_tokens, temperature, p_in, p_out) 
         cost = (r.usage.input_tokens * p_in + r.usage.output_tokens * p_out) / 1e6
         return Completion(text, [], {"role": "assistant", "content": text}, cost, r.id)
     raise LLMError(f"unknown provider {provider!r}")
+
+
+def openai_create(role: str, model: str, kwargs: dict, *, tag: str = "", max_out: int = 4096):
+    """Ledgered pass-through for code that expects an OpenAI client (AgentDojo's OpenAILLM inside CaMeL).
+
+    `model` is "or:<id>". Returns the provider's raw ChatCompletion.
+    """
+    if role not in ROLES:
+        raise LLMError(f"unknown role {role!r}")
+    provider, mid = model.split(":", 1)
+    if provider != "or":
+        raise LLMError("openai_create supports OpenRouter models only")
+    p_in, p_out = price(model)
+    chars = len(json.dumps(kwargs.get("messages", []), default=str)) + len(
+        json.dumps(kwargs.get("tools") or [], default=str)
+    )
+    estimate = (chars / 2.5 * p_in + max_out * p_out) / 1e6
+    led = ledger()
+    led.reserve(estimate)
+    call = {**kwargs, "model": mid, "extra_body": {"usage": {"include": True}}, "timeout": 180}
+    try:
+        for attempt in range(5):
+            try:
+                r = _client("or").chat.completions.create(**call)
+                if not r.choices:
+                    raise LLMError(f"empty response: {r}")
+                break
+            except Exception as e:
+                if attempt == 4 or not _transient(e):
+                    raise LLMError(f"{model}: {e}") from e
+                time.sleep(2**attempt + 0.5)
+    except BaseException:
+        led.release(estimate)
+        raise
+    usage = r.usage
+    cost = getattr(usage, "cost", None) if usage else None
+    if cost is None:
+        cost = ((usage.prompt_tokens if usage else 0) * p_in + (usage.completion_tokens if usage else 0) * p_out) / 1e6
+    led.record(role, model, r.id, float(cost), estimate, tag)
+    return r

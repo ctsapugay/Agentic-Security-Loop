@@ -34,7 +34,7 @@ def main() -> None:
     results = {}
     for model in CANDIDATES:
 
-        def att(s):
+        def att(s, model=model):
             inj = src.payloads(s)
             return agent.run_episode(
                 "banking",
@@ -47,7 +47,7 @@ def main() -> None:
                 tag="agent_probe",
             ).attack_success
 
-        def ben(t):
+        def ben(t, model=model):
             return agent.run_episode("banking", t, rules=None, model=model, tag="agent_probe").utility
 
         with ThreadPoolExecutor(8) as pool:

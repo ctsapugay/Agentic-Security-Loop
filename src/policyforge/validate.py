@@ -3,7 +3,8 @@
 A candidate ships only if:
   1. it parses, fits the real tools, and has no dead (shadowed) allow rules;
   2. replaying every recorded training attack under it, none succeeds (AgentDojo's own check);
-  3. replaying every benign reference task, utility >= floor and confirmations stay within budget.
+  3. replaying the benign bank (one recorded successful CaMeL run per benign task the unprotected agent
+     can do), utility >= floor and confirmations stay within budget.
 """
 
 from __future__ import annotations
@@ -36,15 +37,18 @@ class Validation:
 
 
 def benign_traces(suite_name: str) -> list[E.Trace]:
+    """AgentDojo's reference solutions (no runtime labels). Used only when no benign bank is given."""
     return [E.ground_truth_trace(suite_name, t) for t in E.suite(suite_name).user_tasks]
 
 
-def evaluate(rules: RuleSet, suite_name: str, attack_traces: list[tuple[int, E.Trace]]) -> Evaluation:
+def evaluate(
+    rules: RuleSet, suite_name: str, attack_traces: list[tuple[int, E.Trace]], benign: list[E.Trace] | None = None
+) -> Evaluation:
     with ThreadPoolExecutor(8) as pool:
         attack_rep = dict(
             zip([i for i, _ in attack_traces], pool.map(lambda it: E.replay(it[1], rules, benign=False), attack_traces))
         )
-    benign = benign_traces(suite_name)
+    benign = benign if benign is not None else benign_traces(suite_name)
     benign_rep = {t.user_task_id: E.replay(t, rules, benign=True) for t in benign}
     succeeded = [i for i, t in attack_rep.items() if t.attack_success]
     failed = [tid for tid, t in benign_rep.items() if not t.utility]
@@ -64,6 +68,7 @@ def validate(
     text: str,
     suite_name: str,
     attack_traces: list[tuple[int, E.Trace]],
+    benign: list[E.Trace] | None = None,
     *,
     utility_floor: float,
     max_confirmation_rate: float,
@@ -78,7 +83,7 @@ def validate(
     shadowed, _ = find_shadowed(rules)
     if shadowed:
         return Validation(False, [f"conflict: {s}" for s in shadowed], rules=rules)
-    ev = evaluate(rules, suite_name, attack_traces)
+    ev = evaluate(rules, suite_name, attack_traces, benign)
     reasons = []
     for i in ev.attacks_succeeded:
         reasons.append(f"regression: past attack run {i} succeeds — {describe_attack(ev.attack_replays[i])}")
@@ -112,7 +117,15 @@ def safe_value(v) -> str:
 
 
 def describe_call(c: E.Call) -> str:
-    args = ", ".join(f"{k}={safe_value(v)} from {c.labels.get(k, ['?'])}" for k, v in c.args.items())
+    def one(k, v):
+        s = f"{k}={safe_value(v)} from {c.labels.get(k, ['?'])}"
+        if c.readers is not None and k in c.readers:
+            s += " readers=" + ("public" if c.readers[k] is None else safe_value(c.readers[k]))
+        return s
+
+    args = ", ".join(one(k, v) for k, v in c.args.items())
+    if c.private_deps:
+        args += ", [control flow depended on private data]"
     d = c.decision
     verdict = (
         "no rules"
