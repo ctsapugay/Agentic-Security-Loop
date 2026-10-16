@@ -9,8 +9,8 @@
 - Live agent (`agent.py`, gpt-4o-mini): confirmed attackable by AgentDojo's built-in attack.
 - Attack store (`attackdb.py`): SQLite.
 
-## Blocked
-- The attacker component (an LLM that writes new prompt injections) was not built. See the stop report in the session.
+## Resolved
+- Attack source for v1: AgentDojo's built-in attacks (see DECISIONS.md). The adaptive LLM attacker is next-phase work.
 
-## Next (after the blocker is resolved)
-Attacker, analyzer, updater, validation, loop, refusal probe, experiments A–F, report.
+## Next
+Attack-source interface plus the built-in adapter, then analyzer, updater, validation, the loop, experiments A–F, and the report.

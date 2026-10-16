@@ -6,19 +6,19 @@
 
 ## The goal
 
-Build the system described in [PROJECT_VISION.md](PROJECT_VISION.md), v1 scope (Section 8): an automated loop that hardens an AgentDojo agent by synthesizing **deterministic security rules**, then run the experiments that answer the research question honestly.
+Build the system described in [PROJECT_VISION.md](PROJECT_VISION.md), v1 scope (Section 8; v1 attacks come from AgentDojo's built-in set, and the adaptive LLM attacker is next-phase work, not part of this goal): an automated loop that hardens an AgentDojo agent by synthesizing **deterministic security rules**, then run the experiments that answer the research question honestly.
 
 ## Done means: all outcomes hold, and `python3 scripts/gate.py` prints `GATE: PASS`
 
 | # | Outcome | How it's verified |
 |---|---|---|
-| O1 | **A working hardening loop** on at least the AgentDojo **banking** suite: attacker, analyzer, and updater are separate roles; each round attacks, grades, records, diagnoses, rewrites, validates, and rolls back on failure. | Gate: report + ledger show real multi-round runs by each role |
+| O1 | **A working hardening loop** on at least the AgentDojo **banking** suite: the attack source, analyzer, and updater are separate components; each round attacks, grades, records, diagnoses, rewrites, validates, and rolls back on failure. | Gate: report + ledger show real multi-round analyzer and updater runs |
 | O2 | **Enforcement is deterministic.** Rules are data (not code an LLM wrote and we execute), and no LLM call happens when deciding allow/deny at runtime. | Gate: ledger has no enforcement-role calls; human review |
 | O3 | **No regressions.** Under the final rule set, **zero training attacks succeed**. | Gate **re-runs** your declared replay command and checks the numbers |
 | O4 | **Utility floor.** The final rule set completes at least the floor share of benign tasks (see `UTILITY_FLOOR` in the gate). | Gate re-runs replay |
-| O5 | **Generalization is measured.** Attack families are split into train and held-out (disjoint, no family in both); results reported for **white-box and black-box** attackers. | Gate: report structure |
-| O6 | **Comparison conditions A–F** from Vision Section 7 are run and reported on the same attacks, with the same attacker access for every condition. | Gate: report structure |
-| O7 | **Attacker model chosen by data.** A refusal probe compares at least 3 models on refusal rate and attack success. | Gate: probe artifact |
+| O5 | **Generalization is measured.** Attack families are split into train and held-out (disjoint, no family in both), and results are reported for both. | Gate: report structure |
+| O6 | **Comparison conditions A–F** from Vision Section 7 are run and reported on the same attacks. | Gate: report structure |
+| O7 | **Pluggable attack source.** v1 uses AgentDojo's built-in attacks (Vision Section 5). The attack source sits behind a documented interface so the next phase's adaptive attacker can plug in without changing the loop. | Human review |
 | O8 | **Budget respected and every LLM call accounted for.** | Gate: ledger total ≤ cap |
 | O9 | **Explained for the human.** `docs/REPORT.md` explains results with at least one concrete attack walked step by step through the system. `docs/DECISIONS.md` logs each significant design choice and every departure from the vision, with the reason. | Gate: files exist, non-trivial |
 | O10 | **Clean engineering.** The project's own tests pass, work is committed on `dev-day-0` (not `main`), and the working tree is clean. | Gate |
@@ -33,9 +33,8 @@ The gate reads `results/final/report.json` and `results/ledger.jsonl`. Everythin
 - `suites`: list of suite names run.
 - `budget`: `{"cap_usd": number, "spent_usd": number}`.
 - `families`: `{"train": [...], "heldout": [...]}`.
-- `conditions`: an object with keys `A`–`F`. Each holds `{"whitebox": M, "blackbox": M}`, where `M` has numeric `train_asr`, `heldout_asr`, `utility`, `confirmations`, and `rule_count` (use `null` for `rule_count` where no rules exist).
+- `conditions`: an object with keys `A`–`F`. Each holds `{"blackbox": M}`, where `M` has numeric `train_asr`, `heldout_asr`, `utility`, `confirmations`, and `rule_count` (use `null` for `rule_count` where no rules exist).
 - `loop`: `{"rounds": int, "rollbacks": int}` for condition E.
-- `refusal_probe`: list of `{"model": str, "requests": int, "refusal_rate": number, "attack_success_rate": number}`.
 - `replay`: `{"command": str, "expected": {"train_attacks_succeeded": int, "train_attacks_total": int, "utility": number}}`. The command must be deterministic, offline (no LLM calls), and print a JSON object with those same three keys on its **last line** of stdout. The gate runs it and compares.
 
 `ledger.jsonl` has one JSON object per LLM API call: `{"role": str, "model": str, "request_id": str, "cost_usd": number}`. `request_id` is the provider's real response ID. Roles must not include `enforcer`.
@@ -59,6 +58,7 @@ The gate reads `results/final/report.json` and `results/ledger.jsonl`. Everythin
 - **Touch `main`**: no committing to, pushing to, force-pushing, or rewriting history on it. Work on branch **`dev-day-0`**. You may push it to `origin` (no force-push). Push nowhere else without the human's OK.
 - **Commit secrets** (`.env` stays git-ignored), or install packages from outside PyPI and the three reference repos.
 - **Change the research question or v1 scope** (Vision Sections 7–8) on your own.
+- **Write an LLM attacker that generates new injections.** That component is next-phase work to be built separately (Vision Section 8).
 
 ### Stop and ask the human when
 - An API key or other credential is missing or rejected.
