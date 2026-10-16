@@ -21,7 +21,7 @@ Build the system described in [PROJECT_VISION.md](PROJECT_VISION.md), v1 scope (
 | O7 | **Attacker model chosen by data.** A refusal probe compares at least 3 models on refusal rate and attack success. | Gate: probe artifact |
 | O8 | **Budget respected and every LLM call accounted for.** | Gate: ledger total ≤ cap |
 | O9 | **Explained for the human.** `docs/REPORT.md` explains results with at least one concrete attack walked step by step through the system. `docs/DECISIONS.md` logs each significant design choice and every departure from the vision, with the reason. | Gate: files exist, non-trivial |
-| O10 | **Clean engineering.** The project's own tests pass, work is committed on a non-`main` branch, and the working tree is clean. | Gate |
+| O10 | **Clean engineering.** The project's own tests pass, work is committed on `dev-day-0` (not `main`), and the working tree is clean. | Gate |
 
 **Honest results beat good-looking results.** Done does *not* require our method to win. If prompt patching (B) beats policies (E), or the loop fails to generalize, that is a valid finding: report it plainly.
 
@@ -47,7 +47,7 @@ The gate reads `results/final/report.json` and `results/ledger.jsonl`. Everythin
 - Deviate from suggestions in the vision doc when you find something better or something doesn't work. Log it in `docs/DECISIONS.md` with the reason.
 - Reuse code from AgentDojo, CaMeL, and Progent (respect their licenses: MIT / Apache-2.0 / MIT), or reimplement.
 - Write, restructure, and delete your own tests and code.
-- Commit freely on your working branch.
+- Commit freely on `dev-day-0`, and push it to `origin`.
 
 ### You must not
 - **Edit `GOAL.md` or `scripts/gate.py`**, or otherwise game the gate (e.g., a replay command that prints hard-coded numbers).
@@ -56,7 +56,7 @@ The gate reads `results/final/report.json` and `results/ledger.jsonl`. Everythin
 - **Exceed the budget.** Enforce the cap in code, before calls are made, not after.
 - **Attack anything real.** Attack payloads exist only inside AgentDojo's simulated environments. Never send them to real services, email addresses, URLs, or accounts.
 - **Let an LLM make runtime security decisions**, or let the updater see raw attack payloads.
-- **Touch `main`**: no pushing, force-pushing, or rewriting history on it. Don't push anywhere without the human's OK.
+- **Touch `main`**: no committing to, pushing to, force-pushing, or rewriting history on it. Work on branch **`dev-day-0`**. You may push it to `origin` (no force-push). Push nowhere else without the human's OK.
 - **Commit secrets** (`.env` stays git-ignored), or install packages from outside PyPI and the three reference repos.
 - **Change the research question or v1 scope** (Vision Sections 7–8) on your own.
 
@@ -65,7 +65,7 @@ The gate reads `results/final/report.json` and `results/ledger.jsonl`. Everythin
 - Spend reaches **80% of the budget cap**.
 - A locked file or the output contract looks wrong or impossible to satisfy.
 - A change would alter the vision, research question, or v1 scope.
-- Something outward-facing would be needed (pushing, publishing, signing up for a service).
+- Something outward-facing would be needed (pushing anywhere other than `dev-day-0`, publishing, signing up for a service).
 - You're stuck: the same blocker has survived 3 genuinely different approaches.
 
 When you stop, say exactly what's blocking, what you tried, and what you need.

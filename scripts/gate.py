@@ -57,7 +57,7 @@ def check_params() -> None:
 
 def check_git() -> None:
     branch = run("git rev-parse --abbrev-ref HEAD").stdout.strip()
-    check("O10 git: working branch is not main", branch not in ("main", "master", ""), branch)
+    check("O10 git: on branch dev-day-0", branch == "dev-day-0", branch)
     dirty = run("git status --porcelain").stdout.strip()
     check("O10 git: working tree clean", dirty == "", dirty[:200])
 
