@@ -12,7 +12,7 @@ from policyforge import env as E
 from policyforge import llm
 from policyforge.rules import RuleSet
 
-AGENT_MODEL = "or:openai/gpt-4o-mini"
+AGENT_MODEL = "or:qwen/qwen3-235b-a22b-2507"
 MAX_TURNS = 12
 
 DEFAULT_SYSTEM_PROMPT = (

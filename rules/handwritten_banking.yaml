@@ -1,0 +1,26 @@
+# Condition C: hand-written expert policy, translated from CaMeL's banking policy
+# (google-research/camel-prompt-injection, src/camel/pipeline_elements/security_policies/banking.py, Apache-2.0).
+# CaMeL: read-only tools are free; money movement requires the recipient to come from the user;
+# password and profile changes require every value to come from the user; denials are blocked.
+# Not translated: CaMeL's "recipient can read subject/amount/date" reader checks (our labels have no readers).
+version: 1
+default_fallback: block
+tools:
+  get_iban: [{id: c-read-iban, effect: allow}]
+  get_balance: [{id: c-read-balance, effect: allow}]
+  get_most_recent_transactions: [{id: c-read-transactions, effect: allow}]
+  get_scheduled_transactions: [{id: c-read-scheduled, effect: allow}]
+  read_file: [{id: c-read-file, effect: allow}]
+  get_user_info: [{id: c-read-user-info, effect: allow}]
+  send_money:
+    - {id: c-send-money-recipient-from-user, effect: allow, origin: {recipient: [user]}}
+  schedule_transaction:
+    - {id: c-schedule-recipient-from-user, effect: allow, origin: {recipient: [user]}}
+  update_scheduled_transaction:
+    - {id: c-update-scheduled-recipient-from-user, effect: allow, origin: {recipient: [user]}}
+  update_password:
+    - {id: c-password-from-user, effect: allow, origin: {password: [user]}}
+  update_user_info:
+    - id: c-user-info-from-user
+      effect: allow
+      origin: {first_name: [user], last_name: [user], street: [user], city: [user]}
