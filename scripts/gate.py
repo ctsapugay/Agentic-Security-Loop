@@ -14,8 +14,8 @@ import sys
 from pathlib import Path
 
 # ---- Human-set parameters (None = not yet set; gate fails until set) ----
-BUDGET_CAP_USD: float | None = None
-UTILITY_FLOOR: float | None = None
+BUDGET_CAP_USD: float | None = 50.0
+UTILITY_FLOOR: float | None = 0.8
 # -------------------------------------------------------------------------
 
 ROOT = Path(__file__).resolve().parent.parent
