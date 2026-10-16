@@ -1,0 +1,12 @@
+{"role": "test", "model": "or:openai/gpt-4o-mini", "request_id": "gen-1792190139-idgXU7zQ8ibnbTGi505N", "cost_usd": 3.75e-06, "tag": ""}
+{"role": "test", "model": "anthropic:claude-haiku-5-5", "request_id": "msg_011Cg6iQXMtwGJ2AKGy7GP79", "cost_usd": 5.8e-06, "tag": ""}
+{"role": "test", "model": "or:openai/gpt-4o-mini", "request_id": "gen-1792190151-LoV1yq0JfHE6HVpRcaOQ", "cost_usd": 1.185e-05, "tag": ""}
+{"role": "agent", "model": "or:openai/gpt-4o-mini", "request_id": "gen-1792190213-amuhZjyuTnaE7MApCzG2", "cost_usd": 0.0001212, "tag": "smoke"}
+{"role": "agent", "model": "or:openai/gpt-4o-mini", "request_id": "gen-1792190214-NaLTT2oTS9pZWilKhfgX", "cost_usd": 0.00015105, "tag": "smoke"}
+{"role": "agent", "model": "or:openai/gpt-4o-mini", "request_id": "gen-1792190216-D4FHIRKu8qR8rCFFtsk5", "cost_usd": 0.00015765, "tag": "smoke"}
+{"role": "agent", "model": "or:openai/gpt-4o-mini", "request_id": "gen-1792190217-7J4QOe57JDWPAFhA8Dvs", "cost_usd": 0.0001212, "tag": "smoke"}
+{"role": "agent", "model": "or:openai/gpt-4o-mini", "request_id": "gen-1792190218-lv9TGEWnmxS5G3OmFIk3", "cost_usd": 0.0001437, "tag": "smoke"}
+{"role": "agent", "model": "or:openai/gpt-4o-mini", "request_id": "gen-1792190219-K8n1Lv8aYPcm5YowSAbx", "cost_usd": 0.0002031, "tag": "smoke"}
+{"role": "agent", "model": "or:openai/gpt-4o-mini", "request_id": "gen-1792190220-bG4rtWuIXEIdfu3iXjs2", "cost_usd": 0.00011025, "tag": "smoke"}
+{"role": "agent", "model": "or:openai/gpt-4o-mini", "request_id": "gen-1792190220-2PBFrKK5pDiFFX3cvE9B", "cost_usd": 0.00013425, "tag": "smoke"}
+{"role": "agent", "model": "or:openai/gpt-4o-mini", "request_id": "gen-1792190222-2msTd0NTDMkNLrG26K8t", "cost_usd": 0.00014715, "tag": "smoke"}
