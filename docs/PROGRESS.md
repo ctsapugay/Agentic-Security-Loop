@@ -25,3 +25,8 @@ The full study is running or done; see `results/final/report.json` and `docs/REP
 - AgentDojo's built-in attacks almost never get past CaMeL's isolation (1 of 210 loop attacks), so v1 can show little on the security side. The next-phase adaptive attacker (`docs/ATTACK_SOURCE.md`) is the main follow-up.
 - The analyzer's strict schema sometimes rejects its output (e.g., an over-long value). The loop then proceeds with no diagnoses, and the updater works from validation feedback alone.
 - Only the banking suite has been run.
+
+## Phase 2 (branch phase-2): not started
+- Plan and decisions: `docs/ADAPTIVE_ATTACKER_PLAN.md`. Charter: `GOAL_PHASE2.md`. Done check: `python3 scripts/gate_phase2.py`.
+- Phase 2 writes only under `results/phase2/` (own ledger, $60 cap). v1's results, ledger, charter, and gate stay byte-identical.
+- First step: one cheap preflight call per provider. API credits for phase 2 are not loaded yet.
