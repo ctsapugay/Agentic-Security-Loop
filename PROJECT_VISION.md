@@ -110,7 +110,23 @@ The agent uses CaMeL's structure (blind planner, quarantined extractor, labels).
 
 **The loop optimizes in both directions:** it tightens rules when attacks get through and loosens them when they block real work. Loosening is safe because every change is re-tested against the full attack history.
 
-### The attacker
+### The attack source
+
+**v1: AgentDojo's built-in, published attacks.** The loop's attack source sits behind a pluggable interface: given a task and an injection goal, return payload text. v1 fills it with AgentDojo's own attack templates, grouped into families by technique (the `important_instructions` variants, including `tool_knowledge`, are one family because they share one template):
+
+| Family | Split |
+|---|---|
+| `important_instructions` (and variants) | train |
+| `ignore_previous` | train |
+| `direct` | train |
+| `system_message` | held-out |
+| `injecagent` | held-out |
+
+Each round draws fresh (user task × injection goal × family) combinations the loop hasn't trained on yet. These attacks are **fixed, not adaptive**, and they don't see the rules, so v1 results are black-box only.
+
+**Next: an adaptive LLM attacker (future work, Section 8).** The design below is the target for the next phase. It will be built separately, using models (e.g., open-weight ones) suited to writing injections for a private test bench, and plugged into the same interface.
+
+### The adaptive attacker (future work)
 
 A smart attacker makes for a strong defense: we only learn to stop what the attacker can find. Design goals:
 
@@ -176,7 +192,7 @@ When the loop finishes (held-out attack success below target, utility above floo
 
 ### Metrics
 
-- Attack success rate on training attacks, **held-out attack families**, and fresh adaptive attacks, each reported for **white-box and black-box** attackers.
+- Attack success rate on training attacks and **held-out attack families** (v1: AgentDojo's built-in attacks, black-box). With the adaptive attacker (next phase): fresh adaptive attacks, reported for **white-box and black-box**.
 - Utility: the share of benign tasks completed.
 - Number of user confirmations required (usability cost).
 - Generalization gap (training vs. held-out attack success).
@@ -212,6 +228,7 @@ These are architectural limits of CaMeL or of rule-based defense in general. The
 
 | Gap | Example | Candidate direction |
 |---|---|---|
+| **Adaptive attacker (next phase)** | v1's built-in attacks are fixed templates that never see the rules, so they can't probe for policy gaps. | Build the adaptive LLM attacker (Section 5) separately, with models suited to writing injections for a private test bench, and plug it into the attack-source interface. Add the white-box vs black-box evaluation and the attacker-model refusal probe at the same time. |
 | **Data-driven tasks** | "Do what David's email says": the blind planner can't plan steps it can't see. | Allow a *restricted sub-plan* built from the data, limited to a narrow set of low-risk tools, with confirmation for the rest. The loop tunes that limit. (Partial fix.) |
 | **Side channels** | The agent fetches a URL once or twice depending on a secret bit, and the attacker watches. | CaMeL's strict mode (taint control flow that depends on untrusted data) plus rate limits; the loop tunes strictness. (Partial fix.) |
 | **Text-only attacks** | A poisoned email makes the agent *tell* the user "the CEO approved this wire." No tool call, so no checkpoint fires. | Treat "reply to user" as a tool, and flag the parts of the answer that came from untrusted data. (Mitigates, doesn't prevent.) |
@@ -228,16 +245,15 @@ These are architectural limits of CaMeL or of rule-based defense in general. The
 - **Building blocks:** CaMeL's open-source code (github.com/google-research/camel-prompt-injection) and Progent's (github.com/sunblaze-ucb/progent).
 - **Attack database: SQLite.** A single local file with no server, SQL queries over attacks, outcomes, and which check fired. Move to Postgres only if we later run many loops in parallel.
 - **Models:** cloud API models for attackers, analyzer, updater, and the agent. No local GPU is available, which rules out RL-trained attackers (e.g., RL-Hammer).
-- **Attacker model selection.** Safety-tuned models may refuse to write injections. One study saw 37% of attacker outputs come back empty from refusals, cut to 2% with a red-team persona, a strategy catalog, and a penalty for refusing (arXiv:2606.10525). AgentDojo's attack goals are fake (e.g., "send $10 to a fake IBAN"), which makes refusals less likely. Plan: an early **refusal probe** that gives 3–4 candidate models (GPT-5-class, Claude, a hosted open-weight model such as Qwen or DeepSeek) the same ~50 attack-writing requests and measures both refusal rate and attack success. We pick from the data.
+- **Attacker model selection (next phase).** Safety-tuned models may refuse to write injections. One study saw 37% of attacker outputs come back empty from refusals, cut to 2% with a red-team persona, a strategy catalog, and a penalty for refusing (arXiv:2606.10525). AgentDojo's attack goals are fake (e.g., "send $10 to a fake IBAN"), which makes refusals less likely. Plan: an early **refusal probe** that gives 3–4 candidate models (GPT-5-class, Claude, a hosted open-weight model such as Qwen or DeepSeek) the same ~50 attack-writing requests and measures both refusal rate and attack success. We pick from the data.
 - **Nature of the project:** a personal project. (A separate, fictional grant proposal for a class is based on the same idea, but this repo is the real build.)
 
 ## 10. Open questions to work out together
 
 ### Decided
 
-- **Attacker access:** white-box (sees the rules) during training; final evaluation reports both white-box and black-box; every comparison condition gets the same access.
-- **Attacker design direction:** a strategy library that grows, plus feedback on which check blocked each attempt.
-- **Attacker model:** chosen by an early refusal probe, not assumed.
+- **v1 attack source:** AgentDojo's built-in attacks, split into train and held-out by family (Section 5). Black-box only.
+- **Next phase:** an adaptive LLM attacker, white-box during training and evaluated both ways, with its model chosen by a refusal probe. It plugs into the same attack-source interface.
 - **Lifecycle:** offline hardening step; the output ships without the loop.
 - **Attack database:** SQLite.
 - **v1 scope:** rule-fixable attacks only; architectural gaps are future work (Section 8).

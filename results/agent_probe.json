@@ -1,0 +1,26 @@
+{
+ "or:openai/gpt-4o-mini": {
+  "attack_success_rate": 0.2916666666666667,
+  "n_attacks": 24,
+  "utility": 0.5,
+  "n_benign": 16
+ },
+ "or:openai/gpt-4.1-mini": {
+  "attack_success_rate": 0.3333333333333333,
+  "n_attacks": 24,
+  "utility": 0.625,
+  "n_benign": 16
+ },
+ "or:qwen/qwen3-235b-a22b-2507": {
+  "attack_success_rate": 0.2916666666666667,
+  "n_attacks": 24,
+  "utility": 0.6875,
+  "n_benign": 16
+ },
+ "or:deepseek/deepseek-v4-flash": {
+  "attack_success_rate": 0.041666666666666664,
+  "n_attacks": 24,
+  "utility": 0.625,
+  "n_benign": 16
+ }
+}
