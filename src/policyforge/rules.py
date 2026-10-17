@@ -56,7 +56,7 @@ SCHEMA_KEYS = {"type", "pattern", "enum", "const", "minimum", "maximum", "maxLen
 USER = "user"
 # Labels produced by the CaMeL runtime: user, assistant (the planner's own literals), camel (interpreter),
 # trusted_tool, "<tool>" (untrusted tool data), "<tool>:trusted" (tool data CaMeL marks as trusted).
-SPECIAL_SOURCES = {"user", "assistant", "camel", "trusted_tool", "unknown"}
+SPECIAL_SOURCES = {"user", "assistant", "camel", "trusted_tool", "unknown", "query_ai_assistant"}
 
 
 class ParseError(ValueError):

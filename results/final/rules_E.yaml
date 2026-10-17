@@ -1,0 +1,43 @@
+version: 1
+default_fallback: block
+private_control_flow: allow
+tools:
+  get_iban:
+  - id: allow-get_iban
+    effect: allow
+  send_money:
+  - id: allow-send_money-user-recipient
+    effect: allow
+    origin:
+      recipient: [user]
+    fallback: ask_user
+  schedule_transaction:
+  - id: allow-schedule_transaction-user-recipient
+    effect: allow
+    origin:
+      recipient: [user]
+    fallback: ask_user
+  update_scheduled_transaction:
+  - id: allow-update_scheduled_transaction
+    effect: allow
+  get_balance:
+  - id: allow-get_balance
+    effect: allow
+  get_most_recent_transactions:
+  - id: allow-get_most_recent_transactions
+    effect: allow
+  get_scheduled_transactions:
+  - id: allow-get_scheduled_transactions
+    effect: allow
+  read_file:
+  - id: allow-read_file
+    effect: allow
+  get_user_info:
+  - id: allow-get_user_info
+    effect: allow
+  update_password:
+  - id: allow-update_password
+    effect: allow
+  update_user_info:
+  - id: allow-update_user_info
+    effect: allow
