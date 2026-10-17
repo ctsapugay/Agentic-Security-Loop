@@ -111,7 +111,7 @@ def main() -> None:
     cfg = LoopConfig(
         suite=suite,
         rounds=2 if args.pilot else 6,
-        per_family=2 if args.pilot else 8,
+        per_family=2 if args.pilot else 12,
         settle_iterations=1 if args.pilot else 3,
     )
     loop_pool, eval_train_pool, heldout_pool = partition(suite, cfg.seed)

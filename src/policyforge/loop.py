@@ -24,7 +24,7 @@ from policyforge.rules import RuleSet
 from policyforge.validate import evaluate, validate
 
 OBS = "OBS"
-WORKERS = 8
+WORKERS = 16
 
 
 def episode(

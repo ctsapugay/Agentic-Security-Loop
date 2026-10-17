@@ -50,7 +50,7 @@ from policyforge import llm
 from policyforge.llm import chat as _chat
 from policyforge.rules import RuleSet
 
-PLANNER_MODEL = "or:qwen/qwen3-235b-a22b-2507"
+PLANNER_MODEL = "or:deepseek/deepseek-v4-pro"
 EXTRACTOR_MODEL = PLANNER_MODEL
 NO_SIDE_EFFECT = {"query_ai_assistant"}
 _TRUSTED = {S.SourceEnum.User, S.SourceEnum.CaMeL, S.SourceEnum.Assistant, S.SourceEnum.TrustedToolSource}
