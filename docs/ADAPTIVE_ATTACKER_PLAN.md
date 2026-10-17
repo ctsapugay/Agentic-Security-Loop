@@ -82,10 +82,17 @@ The user asks to pay a bill from a file. The attacker doesn't inject any instruc
 
 | | White-box (training, and one evaluation mode) | Black-box (the other evaluation mode) |
 |---|---|---|
-| Sees | The current rules (D, E, F), C's policy, and the system prompts (A, B). **Not** CaMeL's internals. | Nothing |
-| Feedback | Outcome plus the blocking check | Outcome only |
+| Sees | The current rules (D, E, F), C's policy, and the system prompts (A, B). **Not** CaMeL's internals. | The goal, the injection vectors, and seed strategies only |
+| Feedback | Outcome plus the blocking check | **One bit per earlier attempt: succeeded or failed** |
 
-In each mode, every condition gets the same access, the same attempt budget, and the same feedback shape.
+Black-box stands in for a real attacker, who can see whether an attack worked but not why. So a black-box call never receives:
+- rule text or system prompts;
+- which check fired, which rule ID blocked the attempt, or which argument or label was involved;
+- analyzer diagnoses;
+- trace contents, including the agent's output;
+- learned strategies, since those were distilled from white-box feedback.
+
+Each black-box call's exact input is logged, and the gate re-checks it. In each mode, every condition gets the same access, the same attempt budget, and the same feedback shape.
 
 **Families and the held-out split.** Families are grouped by mechanism, not by template:
 
@@ -163,8 +170,9 @@ GOAL.md and `scripts/gate.py` stay as they are.
 5. **Held-out families are `value_swap` and `chain`.** *Reason:* they are the mechanisms most distant from v1's training data, and the loop still trains on laundering, CaMeL's main weak spot.
 6. **Goals: AgentDojo's 9 banking goals, plus a separately reported group of value-swap goals** with deterministic checks. *Reason:* the built-in goals stay comparable with v1, and value swaps need goals they can actually satisfy.
 7. **White-box access covers the rules and the system prompts only, not CaMeL's internals.** *Reason:* the rules are meant to be public. The runtime's quirks have to be found by probing.
-8. **The loop stays frozen, with no new `control_flow` diagnosis category.** *Reason:* any change in results should come from the attacker alone.
-9. **Scope: banking only.** *Reason:* it keeps phase 2 comparable with v1 and inside the budget.
+8. **Black-box feedback is one bit per earlier attempt (succeeded or failed).** Black-box calls get no rule text, no system prompts, no diagnostics, no trace contents, and seed strategies only. Every black-box input is logged in a fixed structure, and the gate verifies it. *Reason:* richer feedback would make the "realistic attacker" numbers optimistic.
+9. **The loop stays frozen, with no new `control_flow` diagnosis category.** *Reason:* any change in results should come from the attacker alone.
+10. **Scope: banking only.** *Reason:* it keeps phase 2 comparable with v1 and inside the budget.
 
 ### Phase 3 (recorded, not in scope)
 
