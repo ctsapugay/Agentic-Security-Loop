@@ -1,6 +1,6 @@
 # Phase 2 Plan: the Adaptive LLM Attacker
 
-> **Status: decided.** All open questions are resolved (Section 6). The charter is [GOAL_PHASE2.md](../GOAL_PHASE2.md), and the done check is `python3 scripts/gate_phase2.py`. This plan covers purpose, vision, and architecture. Data schemas, function signatures, prompt wording, and file layout are left to the builder. Background: [PROJECT_VISION.md](../PROJECT_VISION.md) Sections 5, 8, and 9; [REPORT.md](REPORT.md); [ATTACK_SOURCE.md](ATTACK_SOURCE.md).
+> **Status: decided.** All open questions are resolved (Section 6). The charter is [GOAL_PHASE2.md](../GOAL_PHASE2.md), and the done check is `python3 -I scripts/gate_phase2.py`. This plan covers purpose, vision, and architecture. Data schemas, function signatures, prompt wording, and file layout are left to the builder. Background: [PROJECT_VISION.md](../PROJECT_VISION.md) Sections 5, 8, and 9; [REPORT.md](REPORT.md); [ATTACK_SOURCE.md](ATTACK_SOURCE.md).
 
 ---
 
@@ -140,7 +140,7 @@ Safety-tuned models may refuse to write injections. One study saw 37% refusals, 
 | Evaluation (60 samples × *k* = 3 per cell) | ~$25 |
 | Benign runs and overhead | ~$10 |
 
-With a frontier attacker, the sample count and *k* shrink until the plan fits; the cap does not move. With 60 samples, one attack moves a rate by 1.7 points, the same noise level as v1.
+With a frontier attacker, the sample count and *k* shrink until the plan fits; the cap does not move. Note that the 80% stop is $48, so even the cheap-attacker estimate is likely to reach it. At that point the agent stops and asks the human; it does not silently shrink the remaining work. With 60 samples, one attack moves a rate by 1.7 points, the same noise level as v1.
 
 ---
 
