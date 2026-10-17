@@ -28,5 +28,5 @@ The full study is running or done; see `results/final/report.json` and `docs/REP
 
 ## Phase 2 (branch phase-2): not started
 - Plan and decisions: `docs/ADAPTIVE_ATTACKER_PLAN.md`. Charter: `GOAL_PHASE2.md`. Done check: `python3 -I scripts/gate_phase2.py`.
-- Phase 2 writes only under `results/phase2/` (own ledger, $60 cap). v1's results, ledger, charter, and gate stay byte-identical.
+- Phase 2 writes only under `results/phase2/` (own ledger, $75 cap; stop and ask at $60 or on any credit failure). v1's results, ledger, charter, and gate stay byte-identical.
 - First step: one cheap preflight call per provider. API credits for phase 2 are not loaded yet.
