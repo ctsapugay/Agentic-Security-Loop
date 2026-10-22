@@ -1,12 +1,12 @@
 # Phase 2 Plan: Beating CaMeL on Published ADI Attacks
 
-> **Status:** proposal for review. Nothing here is built yet. Once the plan is approved, a locked charter and gate get written from Section 9.
+> **Status:** approved 2026-10-21. Stage 1 (baselines and go/no-go) has a charter and gate; see Section 10.
 >
 > **Hard limits for this phase:** we use only attacks someone else has published (ADI's and AgentDojo's built-in ones). We never write or generate new attack payloads.
 
 ## 1. Purpose
 
-v1 showed that AgentDojo's built-in attacks are too weak to test security. CaMeL's planner/extractor split stopped 209 of 210 of them with no rules at all. The loop's only measurable win was utility.
+v1 showed that AgentDojo's built-in attacks are too weak to test security. CaMeL's planner/extractor split stopped 209 of 210 of them with no rules at all. The loop's only measurable win was utility, and the fair re-run of condition C (2026-10-21) showed that most of that win came from how C was scored: CaMeL's own policy, asking instead of blocking, gets 0.69 utility with 0.53 confirmations per task. **So these ADI baselines decide whether the loop improves on CaMeL at all.**
 
 The **Agent Data Injection (ADI)** benchmark (Choi et al., arXiv 2607.05120; code at github.com/compsec-snu/adi, MIT) is the strongest published attack set we can use. It reports this on AgentDojo:
 
@@ -66,10 +66,12 @@ I cloned `compsec-snu/adi` @ `1a3ddf8` (2026-07-13) into a scratch directory and
 1. **Same version number, different contents.** Their fork also calls itself agentdojo 0.1.35, but it's heavily modified. It keeps only the original `v1` suites (no v1.1–v1.2.2). It edits environment data (the banking bill now contains the real IBAN), adds injection vectors, rewords some injection goals, and edits user tasks. It formats tool output with `json.dumps` instead of YAML, and it tags tool parameters with LangChain annotations for its LangGraph agents.
 2. **How attacks are stored.** An ADI attack isn't an AgentDojo injection task. It lives *on the user task*: `INJECTED_DATA_SYNTACTIC` / `_SEMANTIC` is a list of `{vector: payload}` entries, with a parallel list of `SECURITY_CHECKS` functions. Those functions do case-insensitive substring matching on chosen tools' arguments and/or the final answer. The attack class itself returns an empty payload, and a special branch in their benchmark loop does the injection.
 3. **Counts don't match the paper.** The released code defines **84 syntactic** attacks (banking 9, Slack 10, travel 28, workspace 37) and **82 semantic** ones (166 total). The paper says 108. I couldn't reconcile this from the text I read. It's open question Q2.
+   - *Correction found while preparing stage 1 (flagged to the orchestrator, see Section 10, Q2):* that count read only the task classes. Slack and workspace also build *combined* user tasks that merge two tasks' ADI entries. Loading the suites for real gives **108 syntactic** attacks (banking 9, Slack 16, travel 28, workspace 55), matching the paper, plus **104 semantic** ones, across 96 user tasks. With combined tasks, the channel split for syntactic attacks is: 68 final-answer only, 25 tool or answer, and 15 tool-only (including 3 that check for a Slack message or a file deletion).
 4. **Most attacks succeed through the answer, not a tool.** Of the 84 syntactic attacks, **56 count as successful only through the final answer** (all 28 in travel, 24 in workspace, 4 in banking). 18 succeed through a tool argument *or* the answer, and only **10 are tool-call-only**. Our rules (and CaMeL's) run only at tool calls. CaMeL's interpreter doesn't send `print` through the policy engine. The paper says its authors "extended CaMeL's security policies to also detect unsafe data flow to the user's final answer", but I didn't find that extension in the released code on a first pass.
 5. **Their CaMeL port vs. ours.** The interpreter's labeling logic is the same as upstream. The one behavioral change: structured values are turned into **JSON** text before the extractor sees them, which is the format the syntactic payloads are written against. Upstream CaMeL (ours) shows the extractor Python `repr` text. Normal vs. Strict is CaMeL's own `eval_mode` switch, and the Normal policies are upstream's.
 6. **The taint bug.** The paper says Normal mode lost taint when the extractor pulled values out of tool output. Our extractor replacement returns plain values, and CaMeL's interpreter attaches the labels. Since that interpreter code is unchanged, **we probably inherit whatever bug exists.** This can be checked offline and for free, with a stub extractor and no LLM.
 7. **Integration route (no dependency change needed).** Vendor ADI's four suite definitions (tasks, environment data, injection vectors, security checks) into our repo as an extra suite version loaded by our pinned 0.1.35. Strip the LangChain annotations and keep ADI's MIT notice. Add a *rendering* setting that controls whether tool data reaches the models as JSON (like ADI) or as now. Their LangGraph agents and runner aren't needed.
+   - *Found while preparing stage 1:* ADI's fork also **escapes quotes, backslashes, and newlines** in payloads before substituting them into the environment YAML. Under plain 0.1.35, a syntactic payload breaks the YAML and the environment won't load. The adapter must use ADI's own escaping, and the stage 1 gate's loader does. With it, all 212 published payloads load, and the field holds the raw payload text.
 
 ## 4. Architecture
 
@@ -144,7 +146,7 @@ Two consequences to state up front:
 - **Strict will look much better than 36.5% utility** under this convention. Its denials turn into confirmations, so the honest comparison becomes **confirmations per task at equal security**, plus utility for whatever still fails.
 - **Asking is a perfect defense under this convention** (the user always declines attacks). So confirmations are the real price of security, and the loop must be held to a confirmation budget. Otherwise "ask about everything" wins trivially. We report the full trade-off, not one point.
 
-A separate session is re-running v1's condition C this way. Its results will land on branch **`claude/c-fair-rerun-fb2f62`** (no commits yet when this plan was written). **That re-run sets the comparison standard.** Phase 2 adopts its exact rules (what counts as a trigger, how a decline ends the episode) for every condition.
+A separate session re-ran v1's condition C this way: commit **`1653394`** on branch `claude/c-fair-rerun-fb2f62`. CaMeL's policy engine runs unchanged with `fallback = "ask_user"`. Fair C on banking got 0.69 utility, 0.53 confirmations per task, and 0% attack success. **That commit is the reference implementation and sets the comparison standard.** Phase 2 adopts its exact rules (what counts as a trigger, how a decline ends the episode) for every condition.
 
 ## 8. Cost estimate and budget
 
@@ -188,23 +190,25 @@ The charter and gate come after approval. These are the outcomes they would veri
 11. **Explained for the human:** a report with at least one ADI attack walked step by step, results split by channel and suite, counts with intervals, and every departure logged in DECISIONS.md.
 12. **Honest results:** done doesn't require the loop to win.
 
-## 10. Open questions (with my recommendation)
+## 10. Decisions
 
-**Q1. Add the answer checkpoint?** Without it, at most 28 of 84 syntactic attacks are even reachable by any rule, ours or CaMeL's. **Recommend yes.** It's the fix the vision already names for text-only attacks, the ADI paper applied the equivalent to CaMeL, and it runs for every condition, so it doesn't bias the comparison. Because it widens v1's scope, it needs your OK.
+The orchestrator settled these with the user's approval on 2026-10-21. All eight take the plan's recommendation.
 
-**Q2. Which attacks count as "the 108"?** The code has 84 syntactic and 82 semantic. **Recommend using the released code as ground truth** (84 syntactic for training and evaluation, 82 semantic as the held-out technique), reporting the mismatch, and optionally asking the ADI authors.
+| # | Decision | Reason |
+|---|---|---|
+| Q1 | **Add the answer checkpoint, in stage 2.** | Most syntactic ADI attacks succeed only through the final answer, where no tool-call rule can see them. The ADI paper gave CaMeL the same kind of check. |
+| Q2 | **The released code is ground truth (as decided: 84 syntactic + 82 semantic). Report the mismatch with the paper.** | The code is what we run and grade. **Builder's note, pending the orchestrator's confirmation:** loading the suites with their combined tasks gives 108 + 104, which matches the paper (Section 3, finding 3). Stage 1's charter and gate follow the released code as loaded, so they use 108 syntactic. |
+| Q3 | **JSON rendering for main runs, plus a small sensitivity run.** | JSON is what the payloads were written against. The sensitivity run shows how much ADI depends on it. |
+| Q4 | **Report CaMeL Normal both as shipped and with the taint fix, if the offline check confirms the bug.** | Beating a buggy Normal would only show that the loop routed around a bug. |
+| Q5 | **Drop B from the headline table.** | It runs on the plain agent, so it says nothing about CaMeL, and ADI payloads have no instructions for a prompt to warn about. |
+| Q6 | **Keep deepseek-v4-pro.** | It builds on v1. Our absolute numbers aren't comparable to the paper's GPT-5.2 numbers, and the report must say so. |
+| Q7 | **Keep ADI data and the v1.2.1 built-ins separate.** | Each attack set runs on the data it was written for, with no porting. |
+| Q8 | **The go/no-go thresholds are fixed now:** Normal's ADI attack success ≥ 10%, and Strict costs ≥ 15 utility points or ≥ 0.3 more confirmations per benign task. | They're fixed before any baseline is seen, as constants in the locked gate. |
 
-**Q3. JSON rendering for everything?** **Recommend JSON for all main runs**, since it's what the attacks were published against, plus a small sensitivity run on the current rendering. If ADI only works under JSON, that's itself worth reporting.
+### Staging
 
-**Q4. Should we fix CaMeL's taint bug in the Normal baseline?** **Recommend reporting both:** Normal as shipped, and Normal with taint fixed if the offline check confirms the bug. The interesting comparison is against the stronger (fixed) Normal. Otherwise "the loop beats Normal" might just mean "the loop routed around a bug".
-
-**Q5. Keep the prompt-patching baseline (B)?** It runs on a plain agent, not CaMeL, so it doesn't speak to the CaMeL claim, and ADI payloads contain no instructions for a prompt to warn about. **Recommend dropping it from the headline table** and running it only if the budget checkpoint leaves room. It stays as context, not as a key comparison.
-
-**Q6. Which agent model?** The paper used GPT-5.2. We use deepseek-v4-pro (v1, chosen by data). **Recommend keeping deepseek-v4-pro** so the result builds on v1, and saying clearly that our absolute numbers aren't comparable to the paper's.
-
-**Q7. Mixed benchmark versions?** ADI's suites are based on AgentDojo v1, and our built-in regression set is v1.2.1. **Recommend keeping them separate** (ADI data for ADI attacks, v1.2.1 for built-ins) and reporting each on its own data, rather than porting either to the other.
-
-**Q8. Go/no-go thresholds (Section 5).** **Recommend the proposed 10% / 15 points / 0.3 confirmations,** fixed now, before any baseline is seen.
+- **Stage 1: baselines and go/no-go** ([GOAL_ADI_STAGE1.md](../GOAL_ADI_STAGE1.md), gate `scripts/gate_adi_stage1.py`). It covers: ADI vendored with attribution, the JSON rendering option, fidelity checks, the offline taint check, CaMeL no-policy / Normal / Strict on all four suites under the fair confirmation convention, and a written verdict. **Cap: $25**, with its own ledger.
+- **Stage 2: the loop, the answer checkpoint, and the analyzer change.** It only starts after a GO verdict and the user's decision on the full-phase budget. The $100 cap isn't approved yet.
 
 ## Attribution
 
