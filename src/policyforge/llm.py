@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import threading
 import time
 from dataclasses import dataclass
@@ -33,15 +34,46 @@ ANTHROPIC_PRICES = {
     "claude-haiku-5-5": (0.10, 0.50),
     "claude-opus-5-5": (4.0, 20.0),
 }
-ROLES = {"agent", "planner", "extractor", "attacker", "analyzer", "updater", "baseline", "probe", "test"}
+ROLES = {"agent", "planner", "extractor", "attacker", "analyzer", "updater", "baseline", "probe", "test", "preflight"}
+
+# Phase 2 attributes every call to the attack attempt that caused it. The attacker sets the current
+# attempt for its worker thread; the episode that follows runs in the same thread.
+_attempt = threading.local()
 
 
-class BudgetStop(RuntimeError):
+def set_attempt(uid: str | None) -> None:
+    _attempt.uid = uid
+
+
+def current_attempt() -> str | None:
+    return getattr(_attempt, "uid", None)
+
+
+class BudgetStop(BaseException):
     """Spending would cross the stop threshold. Stop and ask the human (GOAL.md)."""
 
 
 class LLMError(RuntimeError):
     pass
+
+
+class CreditStop(BaseException):
+    """A provider refused a call for billing reasons (HTTP 402, insufficient credits). Hard stop.
+
+    A BaseException on purpose: no `except Exception` (CaMeL's, the loop's, ours) may turn it into a
+    crash, a refusal, or a failed attempt. Stop, keep what's recorded, and ask the human (GOAL_PHASE2.md).
+    """
+
+
+_BILLING = re.compile(
+    r"\b402\b|insufficient[ _](credits|funds|balance|quota)|credit balance is too low|out of credits|"
+    r"payment required|billing|requires more credits|can only afford",
+    re.I,
+)
+
+
+def _billing(e: BaseException) -> bool:
+    return getattr(e, "status_code", None) == 402 or bool(_BILLING.search(f"{type(e).__name__} {e}"))
 
 
 @dataclass
@@ -79,6 +111,8 @@ class Ledger:
         with self.lock:
             self.reserved = max(0.0, self.reserved - estimate)
             row = {"role": role, "model": model, "request_id": request_id, "cost_usd": round(cost, 8), "tag": tag}
+            if current_attempt():
+                row["attempt"] = current_attempt()
             with self.path.open("a") as f:
                 f.write(json.dumps(row) + "\n")
 
@@ -165,6 +199,8 @@ def chat(
             except BudgetStop:
                 raise
             except Exception as e:  # transient provider errors: back off and retry
+                if _billing(e):
+                    raise CreditStop(f"{model}: {e}") from e
                 if attempt == 4 or not _transient(e):
                     raise LLMError(f"{model}: {e}") from e
                 time.sleep(2**attempt + 0.5)
@@ -261,6 +297,8 @@ def openai_create(role: str, model: str, kwargs: dict, *, tag: str = "", max_out
                     raise LLMError(f"empty response: {r}")
                 break
             except Exception as e:
+                if _billing(e):
+                    raise CreditStop(f"{model}: {e}") from e
                 if attempt == 4 or not _transient(e):
                     raise LLMError(f"{model}: {e}") from e
                 time.sleep(2**attempt + 0.5)

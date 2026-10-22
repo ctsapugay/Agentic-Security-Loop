@@ -1,0 +1,2 @@
+{"role": "preflight", "model": "or:qwen/qwen3-235b-a22b-2507", "request_id": "gen-1792261461-u7SSetpMchMeD80AnkZs", "cost_usd": 5.06e-06, "tag": ""}
+{"role": "preflight", "model": "anthropic:claude-haiku-5-5", "request_id": "msg_011Cg8H3JVWGjQ83di4Vyb6u", "cost_usd": 3.8e-06, "tag": ""}
