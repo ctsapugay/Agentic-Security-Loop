@@ -4,6 +4,8 @@
 
 **Short answer from v1:** partly, and with an important caveat. Against AgentDojo's built-in attacks, CaMeL's architecture alone already stops almost everything, so the loop's measurable win is on **utility**: it turns an over-strict expert policy (0.38 utility) into one with 0.69 utility and the same training-attack protection. On generalization, the loop's rules let **one held-out attack through (2%)**, and the step-by-step example below shows exactly why. The built-in attacks are too weak to separate the methods on security; that needs the next phase's adaptive attacker.
 
+> **Correction (2026-10-21).** The 0.38 → 0.69 utility claim compared C unfairly. v1's C ended an episode whenever CaMeL's policy fired, while D/E/F could ask the user. With C re-run under the same confirmation rule, CaMeL's own policy also reaches 0.69 utility. The honest v1 result is about **interruptions at equal security**, not utility. See "Correction: a fair condition C" below.
+
 ## Setup
 - **Suite:** AgentDojo banking (v1.2.1): 16 benign tasks, 9 attacker goals.
 - **Attacks:** AgentDojo's built-in templates. Train families: `important_instructions` (with variants), `ignore_previous`, `direct`. Held-out families: `system_message`, `injecagent`. The loop trained on 210 attacks. Evaluation used 135 fresh attacks per condition (75 train-family, 60 held-out), the same attacks for every condition.
@@ -26,9 +28,33 @@
 
 Deterministic replay against all 210 loop attacks: E, F, and translated-C block all of them; **D lets 1 through**. Replay utility on the benign bank: E 1.00, F 1.00, D 1.00, translated-C 0.33.
 
+## Correction: a fair condition C
+
+**What was wrong.** In v1, a CaMeL policy trigger in condition C raised `SecurityPolicyDeniedError` and ended the episode, so every trigger counted as a failure. In D/E/F, a rule trigger asks the user: approved in benign runs (counted as a confirmation), declined in attacked runs. The CaMeL paper (arXiv 2503.18813, Section 5.4) treats a policy violation as "requires user confirmation", not as a block. It also notes that banking policies trigger often, because `send_money` wants the recipient and amount to come from the user.
+
+**What changed.** C was re-run with the same confirmation rule as D/E/F. Nothing else changed: the same CaMeL banking policy code, the same planner and extractor (deepseek-v4-pro), the same 135 attacks (checked to match v1's payloads exactly), and the same benign set (16 tasks × 2). Results are in `results/c_fair/` ($2.40, separate ledger). v1's `results/final/` is untouched.
+
+| | Train attack success | Held-out attack success | Utility | Confirmations / task |
+|---|---|---|---|---|
+| C, v1 (trigger = failure) | 0% | 0% | 0.38 | 0 |
+| **C, fair (trigger = ask user)** | **0%** | **0%** | **0.69** | **0.53** |
+| D, one-shot LLM rules | 0% | 0% | 0.78 | 0.41 |
+| E, our loop from zero | 0% | 2% (1/60) | 0.75 | 0.31 |
+| F, our loop seeded from C | 0% | 2% (1/60) | 0.69 | 0.38 |
+
+For reference, unprotected CaMeL on this planner reached 0.75 utility on the 16 benign tasks (`results/planner_probe.json`, one run each).
+
+**What it means.**
+- **F does not beat C on utility.** Both are at 0.69. The v1 claim that the loop "raised utility from 0.38 to 0.69" is withdrawn: the 0.38 came from how C was scored, not from CaMeL's policies.
+- **The honest headline is interruptions.** Every policy condition (C–F) stops all 75 train-family attacks, and C–D also stop all 60 held-out ones. E and F let 1 held-out attack through. At that roughly equal security, CaMeL's hand-written policy asks the user **0.53** times per benign task. F asks 0.38 times (28% fewer) and E asks 0.31 times (42% fewer). Concretely: over the 32 benign runs, fair C interrupted the user 17 times, F about 12 times, and E about 10 times.
+- **C still wins one thing:** it let no held-out attack through, and E/F each let one through (the password attack in the walkthrough below). With 60 held-out attacks, one attack is 1.7 points, so this is within noise, but it's a real miss with a known cause.
+- **Fair C is over the project's own confirmation budget** (0.5 per task), and E/F are under it.
+- Utility differences among C–F (0.69–0.78) are 0–3 benign runs out of 32, and live utility varies by a few points between runs. Don't read them as a ranking.
+
+
 ## What this means
 1. **Architecture beats patching, but the built-in attacks barely test it.** With no policy at all, only 1 of 210 built-in attacks got past CaMeL's planner/extractor split. Meanwhile 32% got past the plain agent. Every CaMeL condition reaches 0% on train families, so security can't separate C–F here.
-2. **The loop's clear win is utility.** CaMeL's expert policy blocks honest work: paying a bill whose IBAN came from a file is denied. Seeded with that policy, the loop (F) raised live utility from 0.38 to 0.69, and every recorded attack still fails. From zero (E), it reached utility close to the one-shot rules (0.75 vs 0.78) with fewer confirmations (0.31 vs 0.41). Unlike the one-shot rules, it also blocks every training attack in replay.
+2. **~~The loop's clear win is utility.~~ Corrected: the loop's win is fewer interruptions** (see the correction above). CaMeL's expert policy asks about honest work: paying a bill whose IBAN came from a file triggers it. In v1 those triggers were scored as failures, which is where C's 0.38 came from. Scored fairly, C reaches 0.69, the same as F, but with 0.53 confirmations per task against F's 0.38. From zero (E), it reached utility close to the one-shot rules (0.75 vs 0.78) with fewer confirmations (0.31 vs 0.41). Unlike the one-shot rules, it also blocks every training attack in replay.
 3. **Prompt patching held up well against fixed templates** (1–2% success, utility 0.72 → 0.66). That doesn't contradict the RvB result, which came from adaptive attackers. Templates that never adapt are the easiest case for a patched prompt.
 4. **There is a generalization gap**, explained next.
 

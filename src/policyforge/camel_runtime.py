@@ -146,7 +146,8 @@ class PolicyForgeEngine(AgentDojoSecurityPolicyEngine):
                 "allowed": ok,
                 "check": "allow" if ok else "camel_policy",
                 "rule_id": None,
-                "fallback": None if ok else "block",
+                # v1's C blocked; a delegate class with `fallback = "ask_user"` asks the user instead (c_fair)
+                "fallback": None if ok else getattr(self.delegate, "fallback", "block"),
                 "reason": "" if ok else res.reason,
             }
         elif ep.rules is not None:

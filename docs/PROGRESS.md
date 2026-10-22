@@ -22,6 +22,7 @@
 The full study is running or done; see `results/final/report.json` and `docs/REPORT.md`.
 
 ## Known problems / next
+- v1's C was scored unfairly (policy triggers counted as failures). The fair re-run is in `results/c_fair/`, and `docs/REPORT.md` has the corrected comparison. `results/final/report.json` still holds the v1 C numbers.
 - AgentDojo's built-in attacks almost never get past CaMeL's isolation (1 of 210 loop attacks), so v1 can show little on the security side. The next-phase adaptive attacker (`docs/ATTACK_SOURCE.md`) is the main follow-up.
 - The analyzer's strict schema sometimes rejects its output (e.g., an over-long value). The loop then proceeds with no diagnoses, and the updater works from validation feedback alone.
 - Only the banking suite has been run.

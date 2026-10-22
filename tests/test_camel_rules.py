@@ -92,3 +92,34 @@ def test_camel_replay_halts_on_denial():
     assert rep.attack_success is False
     allow = E.replay(t, None, benign=False)
     assert allow.attack_success is True  # with no rules, the same trace does move the money
+
+
+def test_c_fair_policy_violation_asks_user():
+    """Fair C: a CaMeL policy violation is a confirmation (approved if benign, declined if attacked), like ask_user."""
+    from camel.security_policy import Allowed, Denied
+
+    from policyforge import camel_runtime as CR
+    from policyforge.c_fair import ConfirmingBankingPolicyEngine
+
+    class AlwaysDeny(ConfirmingBankingPolicyEngine):
+        def check_policy(self, tool_name, kwargs, dependencies):
+            return Denied("needs confirmation")
+
+    class AlwaysDenyBlock(AlwaysDeny):
+        fallback = "block"  # v1's C
+
+    def run(delegate, benign):
+        ep = CR._Episode(None, delegate, "enforce", benign, "", "", "", frozenset({"send_money"}))
+        token = CR._current.set(ep)
+        try:
+            res = CR.PolicyForgeEngine(None).check_policy("send_money", {}, ())
+        finally:
+            CR._current.reset(token)
+        return res, ep
+
+    res, ep = run(AlwaysDeny, benign=True)
+    assert isinstance(res, Allowed) and ep.confirmations == 1 and ep.calls[0].executed
+    res, ep = run(AlwaysDeny, benign=False)
+    assert isinstance(res, Denied) and ep.confirmations == 1 and not ep.calls[0].executed
+    res, ep = run(AlwaysDenyBlock, benign=True)
+    assert isinstance(res, Denied) and ep.confirmations == 0
