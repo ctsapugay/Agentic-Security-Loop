@@ -8,6 +8,7 @@ tools ourselves so the enforcement checkpoint sees every call.
 from __future__ import annotations
 
 import functools
+import json
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -21,6 +22,13 @@ from policyforge.rules import Decision, RuleSet
 
 BENCHMARK_VERSION = "v1.2.1"
 CANARY = "---CANARY_{}---"
+
+
+def yaml_safe_injections(injections: dict[str, str] | None) -> dict[str, str]:
+    """Escape payload text so AgentDojo can splice it into a quoted YAML environment file."""
+    if not injections:
+        return {}
+    return {k: json.dumps("" if v is None else str(v))[1:-1] for k, v in injections.items()}
 
 
 @functools.lru_cache
@@ -157,7 +165,7 @@ class Episode:
         self.user_task = self.s.user_tasks[user_task_id]
         self.injection_task = self.s.injection_tasks[injection_task_id] if injection_task_id else None
         self.injections = injections
-        env = self.s.load_and_inject_default_environment(injections)
+        env = self.s.load_and_inject_default_environment(yaml_safe_injections(injections))
         self.env = self.user_task.init_environment(env)
         self.pre_env = self.env.model_copy(deep=True)
         self.runtime = FunctionsRuntime(self.s.tools)

@@ -118,6 +118,19 @@ class Store:
             (request_id, mode, prompt, response, raw),
         )
 
+    def has_uid(self, uid: str) -> bool:
+        return bool(self.query("SELECT 1 FROM attempts WHERE uid = ? LIMIT 1", (uid,)))
+
+    def has_probe(self, condition: str, model: str, sample_id: str, attempt: int) -> bool:
+        """True if this model already probed the sample, including older uid formats."""
+        return bool(
+            self.query(
+                "SELECT 1 FROM attempts WHERE phase = 'probe' AND condition = ? AND attacker_model = ? "
+                "AND sample_id = ? AND attempt = ? LIMIT 1",
+                (condition, model, sample_id, attempt),
+            )
+        )
+
     def add_attempt(self, **row) -> None:
         cols = (
             "uid",

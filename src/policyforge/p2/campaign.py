@@ -6,6 +6,7 @@ the same way the loop does, after live enforce-style grading of adaptive payload
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -36,16 +37,19 @@ def _live_episode(
     mode="observe",
     system_prompt="",
     tag="",
+    delegate=None,
     **_,
 ) -> Trace:
+    inj = injection_task_id if (injection_task_id or "").startswith("injection_task") else None
     return loop.episode(
         runtime,
         suite,
         user_task_id,
-        rules=None,
-        injection_task_id=injection_task_id if (injection_task_id or "").startswith("injection_task") else None,
+        rules=None if mode == "observe" else rules,
+        delegate=delegate,
+        injection_task_id=inj,
         injections=injections,
-        mode="observe",
+        mode=mode,
         system_prompt=system_prompt or agent.DEFAULT_SYSTEM_PROMPT,
         tag=tag,
     )
@@ -59,6 +63,7 @@ class AttemptResult:
     trace: Trace
     stopped_by: dict | None
     learned_id: str | None = None
+    sample: AttackSample | None = None
 
 
 @dataclass
@@ -72,9 +77,20 @@ class Campaign:
     k: int = 3
     update_attempts: int = 3
     confirm: str = "realistic"
+    system_prompt: str = ""
+    episode_mode: str = "observe"
+    delegate: type | None = None
+    skip_apply: bool = False
     run_episode: RunEpisode = _live_episode
     library: StrategyLibrary = field(default_factory=StrategyLibrary)
     traces: list[tuple[int, Trace]] = field(default_factory=list)
+
+    def attempt_uid(self, sid: str, n: int) -> str:
+        if self.phase == "probe":
+            return f"{self.condition}:probe:{self.attacker.model}:{sid}:{n}"
+        if self.phase in {"eval", "canary"}:
+            return f"{self.condition}:{self.phase}:{self.attacker.mode}:{sid}:{n}"
+        return f"{self.condition}:{self.phase}:{sid}:{n}"
 
     def __post_init__(self) -> None:
         self.defense_dir = Path(self.defense_dir)
@@ -87,7 +103,8 @@ class Campaign:
         self.attacker.library = self.library
 
     def save_defense(self, text: str, version: int) -> Path:
-        path = self.defense_dir / f"{self.condition}_v{version}.yaml"
+        ext = "txt" if self.condition == "B" else "yaml"
+        path = self.defense_dir / f"{self.condition}_v{version}.{ext}"
         path.write_text(text)
         self.attacker.defense.load(path)
         return path
@@ -98,10 +115,22 @@ class Campaign:
         sid = sample_id(sample.user_task_id, sample.injection_task_id, sample.family)
         for n in range(1, self.k + 1):
             self.attacker.attempt = n
-            uid = f"{self.condition}:{self.phase}:{sid}:{n}"
+            uid = self.attempt_uid(sid, n)
+            if self.phase == "probe" and (self.store.has_uid(uid) or self.store.has_probe(self.condition, self.attacker.model, sid, n)):
+                continue
+            if self.phase in {"eval", "canary"} and self.store.has_uid(uid):
+                row = self.store.query("SELECT live_success, payload_json FROM attempts WHERE uid = ?", (uid,))
+                success = bool(row[0]["live_success"]) if row else False
+                payload = json.loads(row[0]["payload_json"] or "{}") if row else {}
+                out.append(AttemptResult(uid, success, payload, Trace("", "", None, {}, [], ""), None, None, sample))
+                if success:
+                    break
+                continue
             llm.set_attempt(uid)
             try:
                 payload = self.attacker.payloads(sample)
+                if self.phase != "probe" and not any((payload or {}).values()):
+                    continue
                 fp = (self.attacker.last.fingerprint if self.attacker.last else "") or ""
                 inj_id = sample.injection_task_id
                 raw = self.run_episode(
@@ -111,23 +140,32 @@ class Campaign:
                     rules=rules,
                     injection_task_id=inj_id,
                     injections=payload,
-                    mode="observe",
+                    mode=self.episode_mode,
+                    system_prompt=self.system_prompt,
                     tag=uid,
+                    delegate=self.delegate,
                 )
                 if raw.injection_task_id is None:
                     raw.injection_task_id = inj_id
                 raw.injections = payload
-                graded = apply_policy(raw, rules, confirm=self.confirm, goal_id=inj_id)
+                if self.skip_apply:
+                    graded = raw
+                else:
+                    graded = apply_policy(raw, rules, confirm=self.confirm, goal_id=inj_id)
                 success = attack_succeeded(graded, inj_id)
+                raw.attack_success = success
+                raw.utility = graded.utility
+                raw.confirmations = graded.confirmations
                 stopped = stopping_check(graded)
                 snap = self.attacker.defense.snap
-                req = list(self.attacker.last.request_ids) if self.attacker.last else []
+                req = llm.ids_for_attempt(uid)
                 if not req and self.attacker.last:
-                    req = [self.attacker.last.request_id]
+                    req = list(self.attacker.last.request_ids) or [self.attacker.last.request_id]
                 sha = snap.sha256 if snap else ""
                 learned = None
                 was_new = True
-                if sha and fp and self.store is not None:
+                track = self.phase == "train"
+                if track and sha and fp and self.store is not None:
                     parts = fp.split("|")
                     tool = parts[1] if len(parts) == 4 else ""
                     arg = parts[2] if len(parts) == 4 else ""
@@ -143,7 +181,13 @@ class Campaign:
                         last_check=(stopped or {}).get("check") if stopped else None,
                         hit=success,
                     )
-                if success and self.attacker.mode == "whitebox" and any(payload.values()) and was_new:
+                if (
+                    track
+                    and success
+                    and self.attacker.mode == "whitebox"
+                    and any(payload.values())
+                    and was_new
+                ):
                     prior = [h.get("stopped_by") for h in (self.attacker.memory.history(sid, "whitebox", n) if self.attacker.memory else [])]
                     learned_s = learn(
                         self.library,
@@ -178,8 +222,8 @@ class Campaign:
                     notes_json={"stopped_by": stopped, "learned": learned, "fingerprint": fp},
                 )
                 idx = len(self.traces)
-                self.traces.append((idx, graded))
-                out.append(AttemptResult(uid, success, payload, graded, stopped, learned))
+                self.traces.append((idx, raw))
+                out.append(AttemptResult(uid, success, payload, graded, stopped, learned, sample))
                 if success:
                     break
             finally:
@@ -221,8 +265,86 @@ class Campaign:
                 utility_floor=utility_floor,
                 max_confirmation_rate=max_confirmation_rate,
             )
+            if last.accepted and last.rules is not None:
+                n_real = self._realistic_hits(last.rules)
+                if n_real:
+                    last = validate.Validation(
+                        False,
+                        [
+                            f"{n_real} recorded attacks still succeed for a user who confirms tools their task uses"
+                        ],
+                        last.evaluation,
+                        last.rules,
+                    )
             if last.accepted:
                 self.save_defense(cand, version)
+                self._recompute(RuleSet.from_yaml(cand))
                 return last
             feedback = last.reasons
+        return last
+
+    def _realistic_hits(self, rules: RuleSet | None) -> int:
+        n = 0
+        for _, t in self.traces:
+            g = apply_policy(t, rules, confirm="realistic", goal_id=t.injection_task_id or "")
+            if attack_succeeded(g, t.injection_task_id or ""):
+                n += 1
+        return n
+
+    def _recompute(self, rules: RuleSet | None) -> None:
+        """Refresh stored success bits after the defense changes, without new attacker calls."""
+        for _, t in self.traces:
+            g = apply_policy(t, rules, confirm=self.confirm, goal_id=t.injection_task_id or "")
+            t.attack_success = attack_succeeded(g, t.injection_task_id or "")
+
+    def harden_prompt(
+        self,
+        prompt: str,
+        *,
+        version: int,
+        base_utility: float,
+        utility_drop: float = 0.1,
+    ) -> validate.Validation:
+        """B: rewrite the system prompt; validate by re-running recorded hits live (prompts can't replay)."""
+        hits = [(i, t) for i, t in self.traces if t.attack_success]
+        if not hits:
+            return validate.Validation(True, ["no successful attacks; prompt unchanged"])
+        cases = dict(hits)
+        try:
+            diagnoses = roles.analyze(
+                "banking", prompt, set(), cases, {}, mode="prompt", tag=f"{self.condition}:harden"
+            )
+        except roles.DiagnosisError:
+            diagnoses = []
+        stats = f"{len(hits)}/{len(self.traces)} recorded attacks succeed; base utility {base_utility:.2f}"
+        feedback: list[str] = []
+        last = validate.Validation(False, ["no updater attempts"])
+        for n in range(self.update_attempts):
+            cand = roles.update_prompt(prompt, diagnoses, feedback, stats, tag=f"{self.condition}:harden:{n}")
+            still = 0
+            for _, t in hits:
+                raw = self.run_episode(
+                    self.runtime,
+                    t.suite,
+                    t.user_task_id,
+                    rules=None,
+                    injection_task_id=t.injection_task_id,
+                    injections=t.injections,
+                    system_prompt=cand,
+                    tag=f"{self.condition}:harden:{n}",
+                )
+                graded = apply_policy(raw, None, confirm=self.confirm, goal_id=t.injection_task_id or "")
+                if attack_succeeded(graded, t.injection_task_id or ""):
+                    still += 1
+            reasons = []
+            if still:
+                reasons.append(f"{still}/{len(hits)} previously successful attacks still succeed")
+            if reasons:
+                last = validate.Validation(False, reasons)
+                feedback = reasons
+                continue
+            self.save_defense(cand, version)
+            for _, t in hits:
+                t.attack_success = False
+            return validate.Validation(True, ["accepted"], rules=None)
         return last

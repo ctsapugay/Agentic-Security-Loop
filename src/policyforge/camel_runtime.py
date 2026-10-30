@@ -261,7 +261,7 @@ def run_camel_episode(
     s = E.suite(suite_name)
     task = s.user_tasks[user_task_id]
     inj_task = s.injection_tasks[injection_task_id] if injection_task_id else None
-    env = task.init_environment(s.load_and_inject_default_environment(injections or {}))
+    env = task.init_environment(s.load_and_inject_default_environment(E.yaml_safe_injections(injections or {})))
     pre = env.model_copy(deep=True)
     runtime = FunctionsRuntime(s.tools)
     llm_el = OpenAILLM(_planner_client(planner, tag), planner.split(":", 1)[1], temperature=0.0)  # type: ignore[arg-type]

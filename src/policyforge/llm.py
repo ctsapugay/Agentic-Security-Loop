@@ -49,6 +49,21 @@ def current_attempt() -> str | None:
     return getattr(_attempt, "uid", None)
 
 
+def ids_for_attempt(uid: str) -> list[str]:
+    """Ledger request ids recorded under `attempt=uid`, in file order."""
+    path = ledger().path
+    if not uid or not path.exists():
+        return []
+    out: list[str] = []
+    for line in path.read_text().splitlines():
+        if not line.strip():
+            continue
+        row = json.loads(line)
+        if row.get("attempt") == uid and row.get("request_id"):
+            out.append(row["request_id"])
+    return out
+
+
 class BudgetStop(BaseException):
     """Spending would cross the stop threshold. Stop and ask the human (GOAL.md)."""
 
@@ -213,7 +228,23 @@ def chat(
 
 def _transient(e: Exception) -> bool:
     s = f"{type(e).__name__} {e}".lower()
-    return any(k in s for k in ("rate", "429", "timeout", "overloaded", "529", "500", "502", "503", "connection"))
+    return any(
+        k in s
+        for k in (
+            "rate",
+            "429",
+            "timeout",
+            "overloaded",
+            "529",
+            "500",
+            "502",
+            "503",
+            "connection",
+            "empty response",
+            "404",
+            "not_found",
+        )
+    )
 
 
 def _call(provider, mid, messages, tools, max_tokens, temperature, p_in, p_out) -> Completion:
