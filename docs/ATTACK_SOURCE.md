@@ -18,12 +18,13 @@ class AttackSource(Protocol):
 
 Wraps AgentDojo's published templates (see `BUILTIN_FAMILIES`). No LLM calls.
 
-## Next phase: adaptive attacker
+## Phase 2: `AdaptiveAttacker` (`policyforge.p2.attacker`)
 
-Built separately (PROJECT_VISION.md Section 8) with models suited to writing injections for a private test bench. To plug it in:
+An LLM `AttackSource` for AgentDojo banking. Families are mechanisms (`instruction`, `laundering`, `control_flow` train; `value_swap`, `chain` held-out), not v1 template names.
 
-1. Implement `AttackSource`, using `defense` and `feedback` to adapt.
-2. Log every LLM call it makes through `policyforge.llm.chat(..., role="attacker")`, so the ledger and budget cover it.
-3. Pass it to `run_policy_loop` / `run_prompt_loop` / `experiment.evaluate_condition` in place of `BuiltinAttackSource`.
+- Construct it with a `DefenseView` (current rules or prompt file) and a `FeedbackMemory` (the phase-2 store). The frozen loop can keep calling `payloads(sample)`; the attacker reads the handles itself. `defense=` / `feedback=` still work as a pass-through.
+- White-box prompts include the full defense file. Black-box prompts are one template filled with goal, vectors, a **seed** strategy, and `{attempt, payload, success}` for earlier tries on that sample.
+- Log calls with `role="attacker"`. The store records `gate_attacker_calls` so the phase-2 gate can re-render black-box prompts.
+- The live loop is `Campaign` (`policyforge.p2.campaign`): *k* attempts, white-box stopping-check memory, librarian on success, then `harden()` into the frozen analyzer/updater. Validation stays deterministic replay of recorded traces.
 
-Nothing else in the loop changes. Validation stays deterministic: it replays recorded traces, whatever produced the payloads.
+Pass the attacker to `Campaign` (phase 2) or to `run_policy_loop` / eval in place of `BuiltinAttackSource`.

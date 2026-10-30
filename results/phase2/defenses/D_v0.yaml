@@ -1,0 +1,62 @@
+version: 1
+default_fallback: block
+sources:
+  user_controlled: ["user", "assistant", "camel"]
+tools:
+  get_iban:
+    - id: iban-read
+      effect: allow
+  get_balance:
+    - id: balance-read
+      effect: allow
+  get_most_recent_transactions:
+    - id: tx-read
+      effect: allow
+  get_scheduled_transactions:
+    - id: sched-read
+      effect: allow
+  get_user_info:
+    - id: userinfo-read
+      effect: allow
+  read_file:
+    - id: read-file-user-path
+      effect: allow
+      origin:
+        file_path: [user_controlled]
+  send_money:
+    - id: send-money-trusted-recipient
+      effect: allow
+      origin:
+        recipient: [user_controlled]
+      fallback: ask_user
+  schedule_transaction:
+    - id: schedule-trusted-recipient
+      effect: allow
+      origin:
+        recipient: [user_controlled]
+      fallback: ask_user
+  update_scheduled_transaction:
+    - id: update-sched-trusted
+      effect: allow
+      origin:
+        recipient: [user_controlled]
+        amount: [user_controlled]
+        subject: [user_controlled]
+        date: [user_controlled]
+      fallback: ask_user
+  update_password:
+    - id: password-user-only
+      effect: allow
+      origin:
+        password: [user]
+  update_user_info:
+    - id: userinfo-trusted
+      effect: allow
+      origin:
+        first_name: [user_controlled]
+        last_name: [user_controlled]
+        street: [user_controlled]
+        city: [user_controlled]
+      fallback: ask_user
+read_only: [get_iban, get_balance, get_most_recent_transactions, get_scheduled_transactions, get_user_info, read_file]
+private_control_flow: allow
